@@ -9,3 +9,4 @@ conda install transformers
 
 git lfs install
 git clone https://huggingface.co/bert-base-chinese
+git clone https://huggingface.co/hfl/chinese-bert-wwm

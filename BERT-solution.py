@@ -31,9 +31,9 @@ def metric(y_true, y_pred):
     macro_recall = recall_score(y_true, y_pred, average='macro')
     weighted_f1 = f1_score(y_true, y_pred, average='macro')
 
-    print('Accuracy: {:.1%}    Precision: {:.1%}    Recall: {:.1%}    F1: {:.1%}'
+    print('Accuracy: {:.2%}    Precision: {:.2%}    Recall: {:.2%}    F1: {:.2%}'
                 .format(accuracy, macro_precision, macro_recall, weighted_f1))
-    # target_names = ['Positive', 'Negative']
+    # target_names = ['Negative', 'Positive']
     # print(classification_report(y_true, y_pred, target_names=target_names))
 
 
@@ -125,13 +125,13 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 parser = argparse.ArgumentParser()
 
 # Seed
-parser.add_argument('--seed', type=int, default=8)
+parser.add_argument('--seed', type=int, default=1)
 
 # training param
 parser.add_argument('--model_name_or_path', type=str, default='./bert-base-chinese')
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--learning_rate', type=float, default=0.0001)
-parser.add_argument('--epochs', type=int, default=10)
+parser.add_argument('--epochs', type=int, default=15)
 parser.add_argument('--dropout_rate', type=float, default=0.1)
 parser.add_argument('--model_save_path', type=str, default='./BERT-model.pt')
 
@@ -180,7 +180,7 @@ if args.do_train:
     for epoch in range(1, args.epochs + 1):
         now_valid_acc = train_epoch(model, optimizer, loss_func, epoch, device, train_loader, valid_loader)
         test_acc = evaluate(model, device, test_loader, 'Test')
-        if now_valid_acc > best_valid_acc:
+        if now_valid_acc >= best_valid_acc:
             best_valid_acc = now_valid_acc
             torch.save({
                 'epoch': epoch,
@@ -195,6 +195,7 @@ if args.do_train:
 # ==================================== Test ======================================== #
 
 if args.do_test:
+    print('load model from path {}.'.format(args.model_save_path))
     ckpt = torch.load(args.model_save_path)
     model.load_state_dict(ckpt['model_state_dict'])
     evaluate(model, device, test_loader, 'Test')

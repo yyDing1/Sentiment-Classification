@@ -31,7 +31,7 @@ def metric(y_true, y_pred):
     macro_recall = recall_score(y_true, y_pred, average='macro')
     weighted_f1 = f1_score(y_true, y_pred, average='macro')
 
-    print('Accuracy: {:.1%}    Precision: {:.1%}    Recall: {:.1%}    F1: {:.1%}'
+    print('Accuracy: {:.2%}    Precision: {:.2%}    Recall: {:.2%}    F1: {:.2%}'
                 .format(accuracy, macro_precision, macro_recall, weighted_f1))
     # target_names = ['Negative', 'Positive']
     # print(classification_report(y_true, y_pred, target_names=target_names))
@@ -48,7 +48,7 @@ def load_file(path):
 
 
 def Word2VecTrain(text, save_path, n_dim):
-    w2v_model = Word2Vec(text, vector_size=n_dim, min_count=1, alpha=0.05, epochs=50)
+    w2v_model = Word2Vec(text, vector_size=n_dim, min_count=1, alpha=0.05, epochs=60)
     w2v_model.save(save_path)
 
 
@@ -79,22 +79,23 @@ class MyDataset(Dataset):
 
 
 class LSTM4Classify(nn.Module):
-    def __init__(self, vocab_size, n_dim, hidden_size, num_layers, dropout_rate, embedding_weights=None):
+    def __init__(self, vocab_size, n_dim, hidden_size, num_layers, dropout_rate, embedding_weights=None, bidirectional=False):
         super().__init__()
         self.n_dim = n_dim
+        self.bidirectional = bidirectional
         if embedding_weights is None:
             self.embedding = nn.Embedding(vocab_size, n_dim, padding_idx=-1)
         else:
             self.embedding = nn.Embedding.from_pretrained(embedding_weights, padding_idx=-1)
 
         self.dropout = nn.Dropout(dropout_rate)
-        self.lstm = nn.LSTM(n_dim, hidden_size, batch_first=True, num_layers=num_layers, dropout=dropout_rate)
-        self.linear = nn.Linear(hidden_size, 1)
+        self.lstm = nn.LSTM(n_dim, hidden_size, batch_first=True, num_layers=num_layers, dropout=dropout_rate, bidirectional=bidirectional)
+        self.linear = nn.Linear(hidden_size, 1) if not bidirectional else nn.Linear(4 * hidden_size, 1)
     
     def forward(self, inputs):
         embeddings = self.embedding(inputs)
         output, _ = self.lstm(embeddings)
-        output = output[:, -1]
+        output = output[:, -1] if not self.bidirectional else torch.cat((output[:, 0], output[:, -1]), dim=-1)
         output = torch.sigmoid(self.linear(output))
         return output.squeeze(1)
 
@@ -141,7 +142,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 parser = argparse.ArgumentParser()
 
 # Seed
-parser.add_argument('--seed', type=int, default=8)
+parser.add_argument('--seed', type=int, default=16)
 
 # word2vec param
 parser.add_argument('--n_dim', type=int, default=128)
@@ -151,9 +152,10 @@ parser.add_argument('--w2vmodel_path', type=str, default=None)
 # LSTM training param
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--learning_rate', type=float, default=0.0001)
-parser.add_argument('--epochs', type=int, default=10)
+parser.add_argument('--epochs', type=int, default=15)
 parser.add_argument('--num_layers', type=int, default=2)
 parser.add_argument('--dropout_rate', type=float, default=0.1)
+parser.add_argument('--bidirectional', action='store_true')
 parser.add_argument('--model_save_path', type=str, default='./LSTM-model.pt')
 
 # train or eval
@@ -202,7 +204,7 @@ test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False
 # ============= initialize LSTM model with pretrained word embedding =============== #
 
 embedding_weights = torch.from_numpy(embedding_weights).to(device)
-model = LSTM4Classify(len(word2idx), args.n_dim, args.hidden_size, args.num_layers, args.dropout_rate, embedding_weights).to(device)
+model = LSTM4Classify(len(word2idx), args.n_dim, args.hidden_size, args.num_layers, args.dropout_rate, embedding_weights, args.bidirectional).to(device)
 
 
 # ============================== Train and Evaluate ================================ #
@@ -214,7 +216,7 @@ if args.do_train:
     for epoch in range(1, args.epochs + 1):
         now_valid_acc = train_epoch(model, optimizer, loss_func, epoch, device, train_loader, valid_loader)
         test_acc = evaluate(model, device, test_loader, 'Test')
-        if now_valid_acc > best_valid_acc:
+        if now_valid_acc >= best_valid_acc:
             best_valid_acc = now_valid_acc
             torch.save({
                 'epoch': epoch,
@@ -229,6 +231,7 @@ if args.do_train:
 # ==================================== Test ======================================== #
 
 if args.do_test:
+    print('load model from path {}.'.format(args.model_save_path))
     ckpt = torch.load(args.model_save_path)
     model.load_state_dict(ckpt['model_state_dict'])
     evaluate(model, device, test_loader, 'Test')
